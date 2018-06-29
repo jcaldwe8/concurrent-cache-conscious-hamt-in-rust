@@ -179,13 +179,12 @@ impl<T: TrieData> MutexContiguousTrie<T> {
 }//impl MutexContiguousTrie
 
 // TODO should change this to key_length+2, which is {:0key_length+2b}
-#[macro_export]
+#[macro_use]
 macro_rules! binary_format {
     ($x:expr) => {
         format!("{:#034b}", $x)
     };
 }//binary_format
-
 
 fn main() {
     let trie = Arc::new(MutexContiguousTrie::<usize>::new(32, 8));

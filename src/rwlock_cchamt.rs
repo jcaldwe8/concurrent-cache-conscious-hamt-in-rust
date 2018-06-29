@@ -182,15 +182,15 @@ impl<T: TrieData> RwContiguousTrie<T> {
     }
 }
 
+const NTHREAD: usize = 4;
+
 // TODO should change this to key_length+2, which is {:0key_length+2b}
-#[macro_export]
+#[macro_use]
 macro_rules! binary_format {
     ($x:expr) => {
         format!("{:#034b}", $x)
     };
-}
-
-const NTHREAD: usize = 4;
+}//binary_format
 
 fn main() {
 
