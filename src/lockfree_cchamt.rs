@@ -41,6 +41,13 @@ enum Node<K, V> {
     },
 }//enum Node
 
+use std::mem::discriminant;
+// note_type_eq: determine if two nodes have the same enum type
+//  From stackoverflow: Compare enums only by variant, not value
+fn node_type_eq<K, V>(n: Node<K, V>, m: &Node<K, V>) -> bool {
+    discriminant(&n) == discriminant(m)
+}//node_type_eq
+
 // hash: return hashcode for input object
 fn hash<T>(obj: T) -> u64
     where
@@ -179,7 +186,8 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                         node.compare_and_swap(nodeptr, txnptr, Ordering::Relaxed);
                         i -= 1; //lock
                     }//if-else
-                } else if let Node::ANode(ref an) = noderef { //if the node is an ANode
+                //} else if let Node::ANode(ref an) = noderef { //if the node is an ANode
+                } else if node_type_eq(Node::ANode(makeanode(4)), noderef) { //if the node is an ANode
                     //declare a frozen ANode
                     let fnode = mem.alloc(Node::FNode { frozen: AtomicPtr::new(noderef) });
                     //update nodeptr to fnode
