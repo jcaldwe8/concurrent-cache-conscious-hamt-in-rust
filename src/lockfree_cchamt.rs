@@ -17,6 +17,7 @@ impl<T> TrieKey for T where T: Clone + Copy + Eq + PartialEq + Hash {}
 type ANode<K, V> = Vec<AtomicPtr<Node<K, V>>>;
 
 //nodes can be of 7 distinct types:
+//#[derive(Clone)]
 enum Node<K, V> {
     SNode { //stores data
         hash: u64,
@@ -40,6 +41,12 @@ enum Node<K, V> {
         wide: AtomicPtr<Node<K, V>>,
     },
 }//enum Node
+
+//impl <K, V> Clone for AtomicPtr<Node<K, V>> {
+//    fn clone(&self) -> AtomicPtr<Node<K, V>>{
+
+//    }//clone
+//}//Clone
 
 use std::mem::discriminant;
 // note_type_eq: determine if two nodes have the same enum type
@@ -235,6 +242,7 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
         //make refs to parent, narrow, and wide
         //parentpos and level don't need refs, because they're primitive
         if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref mut _wide, .. } = enode {
+        //if node_type_eq(Node::ENode { .. }, enode) {
             let narrowptr = narrow.load(Ordering::Relaxed); //ptr to narrow array
             LockfreeTrie::_freeze(mem, unsafe { &mut *narrowptr });//freeze narrow (make sure we can proceed)
             let mut widenode = mem.alloc(Node::ANode(makeanode(16))); //make an ANode with 16 elements
@@ -323,7 +331,8 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                 } else {
                     LockfreeTrie::_insert(mem, key, val, h, lev, cur, prev)
                 }//if-else
-            } else if let Node::ANode(ref mut an) = oldref { //if we have an ANode
+            //} else if let Node::ANode(ref mut an) = oldref { //if we have an ANode
+            } else if node_type_eq(Node::ANode(makeanode(4)), oldref) { //if the node is an ANode
                 LockfreeTrie::_insert(mem, key, val, h, lev + 4, oldref, Some(cur))
             } else if let Node::SNode { hash: _hash, key: _key, val: _val, ref mut txn } = oldref { //if we have an SNode
                 let txnptr = txn.load(Ordering::Relaxed);
@@ -555,7 +564,8 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                 None
             } else if let Node::FVNode = oldref { //if oldref refs to an empty frozen array node
                 None
-            } else if let Node::ANode(ref an) = oldref {  //if it refs to an ANode
+            //} else if let Node::ANode(ref an) = oldref {  //if it refs to an ANode
+            } else if node_type_eq(Node::ANode(makeanode(4)), oldref) { //if the node is an ANode
                 self._lookup(key, h, lev + 4, oldref, cache, cache_lev) //look further down the trie
             } else if let Node::SNode { key: _key, val, .. } = oldref { //if it contains data
                 if let Some(clev) = cache_lev {
