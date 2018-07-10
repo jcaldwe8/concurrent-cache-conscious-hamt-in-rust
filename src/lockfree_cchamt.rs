@@ -220,6 +220,56 @@ fn get_prev2aptr<K, V>(prev: &Node<K, V>, ppos: usize) -> &AtomicPtr<Node<K, V>>
     prev2aptr
 }
 
+fn get_narrowptr<K, V>(enode: &Node<K, V>) -> *mut Node<K, V> {
+    let narrowptr: *mut Node<K, V>;
+    if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref _wide, .. } = enode {
+        narrowptr = narrow.load(Ordering::Relaxed);
+    } else {
+        panic!("Shouldn't be here");
+    }
+    narrowptr
+}
+
+fn get_enode_level<K, V>(enode: &Node<K, V>) -> u8 {
+    let lev: u8;
+    if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref _wide, .. } = enode {
+        lev = *level;
+    } else {
+        panic!("Shouldn't be here");
+    }
+    lev
+}
+
+fn get_enode__wide<K, V>(enode: &Node<K, V>) -> &AtomicPtr<Node<K, V>>{
+    let _ret_wide: &AtomicPtr<Node<K, V>>;
+    if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref _wide, .. } = enode {
+        _ret_wide = _wide;
+    } else {
+        panic!("Shouldn't be here");
+    }
+    _ret_wide
+}
+
+fn get_enode_parentref<K, V>(enode: &Node<K, V>) -> &Node<K, V> {
+    let parentref: &Node<K, V>;
+    if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref _wide, .. } = enode {
+        parentref = unsafe { &*parent.load(Ordering::Relaxed) };
+    } else {
+        panic!("Shouldn't be here");
+    }
+    parentref
+}
+
+fn get_enode_parentpos<K, V>(enode: &Node<K, V>) -> &u8 {
+    let parentposi: &u8;
+    if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref _wide, .. } = enode {
+        parentposi = parentpos;
+    } else {
+        panic!("Shouldn't be here");
+    }
+    parentposi
+}
+
 /**
  * TODO: fix memory leaks and use atomic_ref or crossbeam crates
  */
@@ -316,28 +366,32 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
         //if we don't have an ENode, panic!
         //make refs to parent, narrow, and wide
         //parentpos and level don't need refs, because they're primitive
-        if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref mut _wide, .. } = enode {
-        /*if node_type_eq(Node::ENode {
-            parent: AtomicPtr::new(makeanode(4)), //parent array node
-            parentpos: 2 as u8, //position in parent array node
-            narrow: AtomicPtr::new(makeanode(4)), //narrow version of enode (currently populated)
-            hash: 3 as u64,
+        //if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref mut _wide, .. } = enode {
+        if node_type_eq(Node::ENode {
+            parent: AtomicPtr::new(mem.alloc(Node::ANode(makeanode(4)))), //parent array node
+            parentpos: 1 as u8, //position in parent array node
+            narrow: AtomicPtr::new(mem.alloc(Node::ANode(makeanode(4)))), //narrow version of enode (currently populated)
+            hash: 1 as u64,
             level: 1 as u8,
             wide: AtomicPtr::new(null_mut()), //wide version of enode (not yet populated)
-        }, enode) {*/
-            let narrowptr = narrow.load(Ordering::Relaxed); //ptr to narrow array
-            //let narrowptr = get
+        }, enode) {
+            //let narrowptr = narrow.load(Ordering::Relaxed); //ptr to narrow array
+            let narrowptr = get_narrowptr(enode);
             LockfreeTrie::_freeze(mem, unsafe { &mut *narrowptr });//freeze narrow (make sure we can proceed)
             let mut widenode = mem.alloc(Node::ANode(makeanode(16))); //make an ANode with 16 elements
+            let level = get_enode_level(enode);
             if let Node::ANode(ref an) = unsafe { &*narrowptr } { //make ref to narrow array
-                LockfreeTrie::_copy(mem, an, unsafe { &mut *widenode }, *level as u64); //copy narrow elements into widearray
+                //LockfreeTrie::_copy(mem, an, unsafe { &mut *widenode }, *level as u64); //copy narrow elements into widearray
+                LockfreeTrie::_copy(mem, an, unsafe { &mut *widenode }, level as u64);
             } else {
                 // this has never happened once, but just to be sure...
                 panic!("CORRUPTION: narrow is not an ANode")
             }//if-else
             //switch to the wide array
-            if _wide.compare_and_swap(null_mut(), widenode, Ordering::Relaxed) != null_mut() {
-                let _wideptr = _wide.load(Ordering::Relaxed);
+            //if _wide.compare_and_swap(null_mut(), widenode, Ordering::Relaxed) != null_mut() {
+            if get_enode__wide(enode).compare_and_swap(null_mut(), widenode, Ordering::Relaxed) != null_mut() {
+                //let _wideptr = _wide.load(Ordering::Relaxed);
+                let _wideptr = get_enode__wide(enode).load(Ordering::Relaxed);
                 if let Node::ANode(ref an) = unsafe { &mut *_wideptr } {
                     widenode = unsafe { &mut *_wideptr }; //set ptr to widenode
                 } else {
@@ -345,7 +399,9 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                     panic!("CORRUPTION: _wide is not an ANode")
                 }//if-else
             }//if
-            let parentref = unsafe { &*parent.load(Ordering::Relaxed) };
+            //let parentref = unsafe { &*parent.load(Ordering::Relaxed) };
+            let parentref = get_enode_parentref(enode);
+            let parentpos = get_enode_parentpos(enode);
             if let Node::ANode(ref an) = parentref { //set ref to parent
                 let anptr = &an[*parentpos as usize];
                 anptr.compare_and_swap(enode, widenode, Ordering::Relaxed);
