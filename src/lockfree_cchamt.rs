@@ -145,6 +145,81 @@ fn makeanode<K, V>(len: usize) -> ANode<K, V> {
     a //return the array node
 } //makeanode
 
+fn get_ary_length<K, V>(cur: &Node<K, V>) -> usize {
+    let mut len: usize = 1;
+    if let Node::ANode(ref cur2) = cur {
+        len = cur2.len();
+    }
+    len
+}
+
+fn is_node_null<K, V>(node: &mut Node<K, V>) -> bool {
+    match node {
+        SNode => { false },
+        ANode => { false },
+        NoTxn => { false },
+        FSNode => { false },
+        FVNode => { false },
+        ENode => { false },
+        _ => { true }
+    }
+}
+
+fn is_oldptr_null<K, V>(cur: &Node<K, V>, pos: usize) -> bool {
+    let mut is_null: bool = true;
+    if let Node::ANode(ref cur2) = cur {
+        let old = &cur2[pos];
+        let oldptr = old.load(Ordering::Relaxed);
+        let oldref = unsafe { &mut *oldptr };
+        //is_null = oldref.is_null();
+        is_null = is_node_null(oldref);
+    }
+    is_null
+}
+
+fn get_old<K, V>(cur: &Node<K, V>, pos: usize) -> &AtomicPtr<Node<K, V>> {
+    let old: &AtomicPtr<Node<K, V>>;
+    if let Node::ANode(ref cur2) = cur {
+        old = &cur2[pos];
+    } else {
+        panic!("Shouldn't be here");
+    }
+    old
+}
+
+fn get_oldptr<K, V>(cur: &Node<K, V>, pos: usize) -> *mut Node<K, V> {
+    let oldptr: *mut Node<K, V>;
+    if let Node::ANode(ref cur2) = cur {
+        let old = &cur2[pos];
+        oldptr = old.load(Ordering::Relaxed);
+    } else {
+        panic!("Shouldn't be here");
+    }
+    oldptr
+}
+
+fn get_oldref<K, V>(cur: &Node<K, V>, pos: usize) -> &mut Node<K, V> {
+    let oldref: &mut Node<K, V>;
+    if let Node::ANode(ref cur2) = cur {
+        let old = &cur2[pos];
+        let oldptr = old.load(Ordering::Relaxed);
+        oldref = unsafe { &mut *oldptr };
+    } else {
+        panic!("Shouldn't be here");
+    }
+    oldref
+}
+
+fn get_prev2aptr<K, V>(prev: &Node<K, V>, ppos: usize) -> &AtomicPtr<Node<K, V>> {
+    let prev2aptr: &AtomicPtr<Node<K, V>>;
+    if let Node::ANode(ref prev2) = prev {
+        prev2aptr = &prev2[ppos];
+    } else {
+        panic!("Shouldn't be here")
+    }
+    prev2aptr
+}
+
 /**
  * TODO: fix memory leaks and use atomic_ref or crossbeam crates
  */
@@ -242,8 +317,16 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
         //make refs to parent, narrow, and wide
         //parentpos and level don't need refs, because they're primitive
         if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref mut _wide, .. } = enode {
-        //if node_type_eq(Node::ENode { .. }, enode) {
+        /*if node_type_eq(Node::ENode {
+            parent: AtomicPtr::new(makeanode(4)), //parent array node
+            parentpos: 2 as u8, //position in parent array node
+            narrow: AtomicPtr::new(makeanode(4)), //narrow version of enode (currently populated)
+            hash: 3 as u64,
+            level: 1 as u8,
+            wide: AtomicPtr::new(null_mut()), //wide version of enode (not yet populated)
+        }, enode) {*/
             let narrowptr = narrow.load(Ordering::Relaxed); //ptr to narrow array
+            //let narrowptr = get
             LockfreeTrie::_freeze(mem, unsafe { &mut *narrowptr });//freeze narrow (make sure we can proceed)
             let mut widenode = mem.alloc(Node::ANode(makeanode(16))); //make an ANode with 16 elements
             if let Node::ANode(ref an) = unsafe { &*narrowptr } { //make ref to narrow array
@@ -252,7 +335,7 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                 // this has never happened once, but just to be sure...
                 panic!("CORRUPTION: narrow is not an ANode")
             }//if-else
-
+            //switch to the wide array
             if _wide.compare_and_swap(null_mut(), widenode, Ordering::Relaxed) != null_mut() {
                 let _wideptr = _wide.load(Ordering::Relaxed);
                 if let Node::ANode(ref an) = unsafe { &mut *_wideptr } {
@@ -305,19 +388,25 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
         return v;
     }//_create_anode
 
-    //_insert:
+
+
+    //_insert: insert a node into the hamt with value V at key K with allocator mem
     fn _insert(mem: &Allocator<Node<K, V>>, //memory allocator
                key: K, val: V, h: u64, lev: u8, //hash key, value, code, and level
                cur: &mut Node<K, V>, //current node (ANode)
                prev: Option<&mut Node<K, V>>) -> bool { //previous node
 
-        if let Node::ANode(ref mut cur2) = cur { //ref to ANode in enum of ANode
-            let pos = (h >> lev) as usize & (cur2.len() - 1); //index
-            let old = &cur2[pos]; //value at pos
-            let oldptr = old.load(Ordering::Relaxed);
-            let oldref = unsafe { &mut *oldptr };
+        if node_type_eq(Node::ANode(makeanode(4)), cur) { //if the node is an ANode
+        //if let Node::ANode(ref mut cur2) = cur { //ref to ANode in enum of ANode
 
-            if oldptr.is_null() { //if there isn't a node at the current pos
+            let pos = (h >> lev) as usize & (get_ary_length(cur) - 1);
+            //let pos = (h >> lev) as usize & (cur2.len() - 1); //index
+            //let old = &cur2[pos]; //value at pos
+            //let oldptr = old.load(Ordering::Relaxed);
+            //let oldref = unsafe { &mut *oldptr };
+
+            //if oldptr.is_null() { //if there isn't a node at the current pos
+            if is_oldptr_null(cur, pos) {
             //define an SNode
                 let sn = mem.alloc(Node::SNode {
                     hash: h,
@@ -326,15 +415,16 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                     txn: AtomicPtr::new(mem.alloc(Node::NoTxn)),
                 });
                 //update oldptr
-                if old.compare_and_swap(oldptr, sn, Ordering::Relaxed) == oldptr {
+                //if old.compare_and_swap(oldptr, sn, Ordering::Relaxed) == oldptr {
+                if get_old(cur, pos).compare_and_swap(get_oldptr(cur, pos), sn, Ordering::Relaxed) == get_oldptr(cur, pos) {
                     true
                 } else {
                     LockfreeTrie::_insert(mem, key, val, h, lev, cur, prev)
                 }//if-else
             //} else if let Node::ANode(ref mut an) = oldref { //if we have an ANode
-            } else if node_type_eq(Node::ANode(makeanode(4)), oldref) { //if the node is an ANode
-                LockfreeTrie::_insert(mem, key, val, h, lev + 4, oldref, Some(cur))
-            } else if let Node::SNode { hash: _hash, key: _key, val: _val, ref mut txn } = oldref { //if we have an SNode
+            } else if node_type_eq(Node::ANode(makeanode(4)), get_oldref(cur, pos)) { //if the node is an ANode
+                LockfreeTrie::_insert(mem, key, val, h, lev + 4, get_oldref(cur, pos), Some(cur))
+            } else if let Node::SNode { hash: _hash, key: _key, val: _val, ref mut txn } = get_oldref(cur, pos) { //if we have an SNode
                 let txnptr = txn.load(Ordering::Relaxed);
                 let txnref = unsafe { &*txnptr };
 
@@ -347,16 +437,18 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                             txn: AtomicPtr::new(mem.alloc(Node::NoTxn)),
                         });
                         if txn.compare_and_swap(txnptr, sn, Ordering::Relaxed) == txnptr {
-                            old.compare_and_swap(oldptr, sn, Ordering::Relaxed);
+                            get_old(cur, pos).compare_and_swap(get_oldptr(cur, pos), sn, Ordering::Relaxed);
                             true
                         } else {
                             LockfreeTrie::_insert(mem, key, val, h, lev, cur, prev)
                         }
-                    } else if cur2.len() == 4 { //if we have a narrow array (might need to expand)
+                    } else if get_ary_length(cur) == 4 { //if we have a narrow array (might need to expand)
                         if let Some(prevref) = prev {
-                            if let Node::ANode(ref mut prev2) = prevref {
-                                let ppos = (h >> (lev - 4)) as usize & (prev2.len() - 1);
-                                let prev2aptr = &prev2[ppos];
+                            //if let Node::ANode(ref mut prev2) = prevref {
+                            if node_type_eq(Node::ANode(makeanode(4)), prevref) {
+                                //let ppos = (h >> (lev - 4)) as usize & (prev2.len() - 1);
+                                let ppos = (h >> (lev - 4)) as usize & (get_ary_length(prevref) - 1);
+                                //let prev2aptr = &prev2[ppos];
                                 let en = mem.alloc(Node::ENode {
                                     parent: AtomicPtr::new(prevref),
                                     parentpos: ppos as u8,
@@ -365,7 +457,8 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                                     level: lev,
                                     wide: AtomicPtr::new(null_mut()),
                                 });
-                                if prev2aptr.compare_and_swap(cur, en, Ordering::Relaxed) == cur {
+                                //if prev2aptr.compare_and_swap(cur, en, Ordering::Relaxed) == cur {
+                                if get_prev2aptr(prevref, ppos).compare_and_swap(cur, en, Ordering::Relaxed) == cur {
                                     LockfreeTrie::_complete_expansion(mem, unsafe { &mut *en });
                                     if let Node::ENode { ref wide, .. } = unsafe { &mut *en } {
                                         let wideref = unsafe { &mut *wide.load(Ordering::Relaxed) };
@@ -400,7 +493,7 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                                                                                        txn: AtomicPtr::new(mem.alloc(Node::NoTxn)),
                                                                                    }, lev + 4)));
                         if txn.compare_and_swap(txnptr, an, Ordering::Relaxed) == txnptr {
-                            old.compare_and_swap(oldptr, an, Ordering::Relaxed);
+                            get_old(cur, pos).compare_and_swap(get_oldptr(cur, pos), an, Ordering::Relaxed);
                             true
                         } else {
                             LockfreeTrie::_insert(mem, key, val, h, lev, cur, prev)
@@ -409,12 +502,12 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                 } else if let Node::FSNode = txnref {
                     false
                 } else {
-                    old.compare_and_swap(oldptr, txnptr, Ordering::Relaxed);
+                    get_old(cur, pos).compare_and_swap(get_oldptr(cur, pos), txnptr, Ordering::Relaxed);
                     LockfreeTrie::_insert(mem, key, val, h, lev, cur, prev)
                 }
             } else { //otherwise
-                if let Node::ENode { .. } = oldref {
-                    LockfreeTrie::_complete_expansion(mem, oldref);
+                if let Node::ENode { .. } = get_oldref(cur, pos) {
+                    LockfreeTrie::_complete_expansion(mem, get_oldref(cur, pos));
                 }
                 false
             }
@@ -551,15 +644,77 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
     fn _lookup<'a>(&self, key: &K, h: u64, lev: u8, cur: &'a mut Node<K, V>,
                    cache: Option<&'a CacheLevel<K, V>>, cache_lev: Option<u8>) -> Option<&'a V> {
 
-        if let Node::ANode(ref cur2) = cur { //if cur is of enum type ANode, make reference to array node
-            let pos = (h >> lev) as usize & (cur2.len() - 1); //index for level
-            let oldptr = (&cur2[pos]).load(Ordering::Relaxed);
-            let oldref = unsafe { &mut *oldptr };
-
+        //if let Node::ANode(ref cur2) = cur { //if cur is of enum type ANode, make reference to array node
+        if node_type_eq(Node::ANode(makeanode(4)), cur) {
             if Some(lev) == cache_lev { //if cache_lev contains something
                 self._inhabit(cache, cur, h, lev);
             }//if
 
+            let cur2:Vec<AtomicPtr<Node<K, V>>>;
+            /*
+            match cur {
+                Node::ANode(ref cur2) => {  }, // maybe put everything in here?
+                _ => { panic!("ANode needs to contain array") }
+                //None => { panic!("ANode needs to contain array") }
+            }
+            */
+            match cur {
+                Node::ANode(ref cur2) => {
+                    let pos = (h >> lev) as usize & (cur2.len() - 1); //index for level
+                    let oldptr = (&cur2[pos]).load(Ordering::Relaxed);
+                    let oldref = unsafe { &mut *oldptr };
+
+                    if oldptr.is_null() { //if there isn't anything at pos
+                        None
+                    } else if let Node::FVNode = oldref { //if oldref refs to an empty frozen array node
+                        None
+                    //} else if let Node::ANode(ref an) = oldref {  //if it refs to an ANode
+                    } else if node_type_eq(Node::ANode(makeanode(4)), oldref) { //if the node is an ANode
+                        self._lookup(key, h, lev + 4, oldref, cache, cache_lev) //look further down the trie
+                    } else if let Node::SNode { key: _key, val, .. } = oldref { //if it contains data
+                        if let Some(clev) = cache_lev {
+                            if !(lev >= clev || lev <= clev + 4) {
+                                self._record_miss();
+                            }//if
+                            if lev + 4 == clev {
+                                self._inhabit(cache, oldptr, h, lev + 4);
+                            }//if
+                        }//if
+                        if *_key == *key {
+                            Some(val)
+                        } else {
+                            None
+                        }//if-else
+                    } else if let Node::ENode { narrow, .. } = oldref {
+                        self._lookup(key, h, lev + 4, unsafe { &mut *narrow.load(Ordering::Relaxed) }, cache, cache_lev)
+                    } else if let Node::FNode { frozen } = oldref {
+                        self._lookup(key, h, lev + 4, unsafe { &mut *frozen.load(Ordering::Relaxed) }, cache, cache_lev)
+                    } else {
+                        // this has never happened once, but just to be sure...
+                        panic!("CORRUPTION: oldref is not a valid node")
+                    }
+                }, // maybe put everything in here?
+                _ => { panic!("ANode needs to contain array") }
+            }
+            /*
+            if let Node::ANode(ref cur2) = cur {
+                //do nothing
+            } else {
+                panic!("Shouldn't be here")
+            }
+            */
+            /*
+            //let Node::ANode(ref cur2) = cur; //moved from if-statement
+            let pos = (h >> lev) as usize & (cur2.len() - 1); //index for level
+            let oldptr = (&cur2[pos]).load(Ordering::Relaxed);
+            let oldref = unsafe { &mut *oldptr };
+
+            //moved up ~10 lines
+            //if Some(lev) == cache_lev { //if cache_lev contains something
+            //    self._inhabit(cache, cur, h, lev);
+            //}//if
+
+            //moved up into match statement (~50 lines)
             if oldptr.is_null() { //if there isn't anything at pos
                 None
             } else if let Node::FVNode = oldref { //if oldref refs to an empty frozen array node
@@ -589,6 +744,7 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                 // this has never happened once, but just to be sure...
                 panic!("CORRUPTION: oldref is not a valid node")
             }
+            */
         } else {
             // this has never happened once, but just to be sure...
             panic!("CORRUPTION: cur is not a pointer to ANode")
