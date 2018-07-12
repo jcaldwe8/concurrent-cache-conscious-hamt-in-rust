@@ -14,6 +14,7 @@ pub trait TrieKey: Clone + Copy + Eq + PartialEq + Hash {}
 
 impl<T> TrieKey for T where T: Clone + Copy + Eq + PartialEq + Hash {}
 
+//#[derive(Clone)]
 type ANode<K, V> = Vec<AtomicPtr<Node<K, V>>>;
 
 //nodes can be of 7 distinct types:
@@ -270,6 +271,21 @@ fn get_enode_parentpos<K, V>(enode: &Node<K, V>) -> &u8 {
     parentposi
 }
 
+fn get_enode_anptr<K, V>(enode: &Node<K, V>) -> &AtomicPtr<Node<K, V>> {
+    let anptr: &AtomicPtr<Node<K, V>>;
+    if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref _wide, .. } = enode {
+        let parentref = unsafe { &*parent.load(Ordering::Relaxed) };
+        if let Node::ANode(ref an) = parentref {
+            anptr = &an[*parentpos as usize];
+        } else {
+            panic!("Shouldn't be here");
+        }
+    } else {
+        panic!("Shouldn't be here");
+    }
+    anptr
+}
+
 /**
  * TODO: fix memory leaks and use atomic_ref or crossbeam crates
  */
@@ -400,11 +416,24 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                 }//if-else
             }//if
             //let parentref = unsafe { &*parent.load(Ordering::Relaxed) };
-            let parentref = get_enode_parentref(enode);
-            let parentpos = get_enode_parentpos(enode);
-            if let Node::ANode(ref an) = parentref { //set ref to parent
-                let anptr = &an[*parentpos as usize];
-                anptr.compare_and_swap(enode, widenode, Ordering::Relaxed);
+            //let parentref = get_enode_parentref(enode);
+            //let parentpos = get_enode_parentpos(enode);
+            //if let Node::ANode(ref an) = parentref { //set ref to parent
+            if node_type_eq(Node::ANode(makeanode(4)), get_enode_parentref(enode)) {
+                //let anptr = &an[*parentpos as usize];
+                //anptr.compare_and_swap(enode, widenode, Ordering::Relaxed);
+                get_enode_anptr(enode).compare_and_swap(enode, widenode, Ordering::Relaxed);
+                /*
+                let i: u8;
+                for i in 0..1 {
+                    if get_enode_anptr(enode) == enode {
+                        break;
+                    }
+                }
+                if i == 0 {
+                    get_enode_anptr(enode) = widenode;
+                }
+                */
             } else {
                 // this has never happened once, but just to be sure...
                 panic!("CORRUPTION: parent is not an ANode")
