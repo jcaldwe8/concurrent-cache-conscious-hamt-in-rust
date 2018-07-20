@@ -286,6 +286,22 @@ fn get_enode_anptr<K, V>(enode: &Node<K, V>) -> &AtomicPtr<Node<K, V>> {
     anptr
 }
 
+/*
+fn CAS_check_eq<K, V>(p2p: AtomicPtr<Node<K, V>>, cur: &Node<K, V>, en: *mut Node<K, V>) -> bool {
+    //get_prev2aptr(prevref, ppos).compare_and_swap(cur, en, Ordering::Relaxed) == cur
+    let mut ret = false;
+    if p2p.into_inner() as *const _ == cur as *const _ {
+        ret = true;
+    } else {
+        ret = false;
+    }
+    if ret {
+        p2p.store(en, Ordering::Relaxed);
+    }
+    ret
+}
+*/
+
 /**
  * TODO: fix memory leaks and use atomic_ref or crossbeam crates
  */
@@ -421,8 +437,16 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
             //if let Node::ANode(ref an) = parentref { //set ref to parent
             if node_type_eq(Node::ANode(makeanode(4)), get_enode_parentref(enode)) {
                 //let anptr = &an[*parentpos as usize];
+                //check to make sure that the parent's array points to the enode then replace it with the widenode
                 //anptr.compare_and_swap(enode, widenode, Ordering::Relaxed);
-                get_enode_anptr(enode).compare_and_swap(enode, widenode, Ordering::Relaxed);
+                //let anptr: &AtomicPtr<Node<K, V>>;
+                //{
+                //    anptr = get_enode_anptr(enode);
+                //}
+                //anptr.compare_and_swap(enode, widenode, Ordering::Relaxed);
+                //get_enode_anptr(enode).compare_and_swap(enode, widenode, Ordering::Relaxed);
+                let anptr = get_enode_anptr(enode);       //doesn't do check to make sure that anptr currently
+                anptr.store(widenode, Ordering::Relaxed); //points to enode before storing a ptr to widenode
                 /*
                 let i: u8;
                 for i in 0..1 {
@@ -542,8 +566,12 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                                     level: lev,
                                     wide: AtomicPtr::new(null_mut()),
                                 });
+                                //let en: Node::ENode;
                                 //if prev2aptr.compare_and_swap(cur, en, Ordering::Relaxed) == cur {
+                                //determine if prev2aptr contains ptr to cur
+                                //swap ptr to en if that's true and continue in if-statement
                                 if get_prev2aptr(prevref, ppos).compare_and_swap(cur, en, Ordering::Relaxed) == cur {
+                                //if CAS_check_eq(get_prev2aptr(prevref, ppos), cur, en) {
                                     LockfreeTrie::_complete_expansion(mem, unsafe { &mut *en });
                                     if let Node::ENode { ref wide, .. } = unsafe { &mut *en } {
                                         let wideref = unsafe { &mut *wide.load(Ordering::Relaxed) };
