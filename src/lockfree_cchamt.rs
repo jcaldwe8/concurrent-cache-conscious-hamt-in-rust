@@ -286,6 +286,46 @@ fn get_enode_anptr<K, V>(enode: &Node<K, V>) -> &AtomicPtr<Node<K, V>> {
     anptr
 }
 
+fn get_txn<K, V>(cur: &Node<K, V>, pos: usize) -> &AtomicPtr<Node<K, V>> {
+    let trans: &AtomicPtr<Node<K, V>>;
+    if let Node::SNode { hash: _hash, key: _key, val: _val, ref mut txn } = get_oldref(cur, pos) {
+        trans = txn;
+    } else {
+        panic!("Shouldn't be here");
+    }
+    trans
+}
+
+fn get_key<K, V>(cur: &Node<K, V>, pos: usize) -> &mut K {
+    let key: &mut K;
+    if let Node::SNode { hash: _hash, key: _key, val: _val, ref mut txn } = get_oldref(cur, pos) {
+        key = _key;
+    } else {
+        panic!("Shouldn't be here");
+    }
+    key
+}
+
+fn get_hash<K, V>(cur: &Node<K, V>, pos: usize) -> &mut u64 {
+    let hash: &mut u64;
+    if let Node::SNode { hash: _hash, key: _key, val: _val, ref mut txn } = get_oldref(cur, pos) {
+        hash = _hash;
+    } else {
+        panic!("Shouldn't be here");
+    }
+    hash
+}
+
+fn get_val<K, V>(cur: &Node<K, V>, pos: usize) -> &mut V {
+    let val: &mut V;
+    if let Node::SNode { hash: _hash, key: _key, val: _val, ref mut txn } = get_oldref(cur, pos) {
+        val = _val;
+    } else {
+        panic!("Shouldn't be here");
+    }
+    val
+}
+
 /*
 fn CAS_check_eq<K, V>(p2p: AtomicPtr<Node<K, V>>, cur: &Node<K, V>, en: *mut Node<K, V>) -> bool {
     //get_prev2aptr(prevref, ppos).compare_and_swap(cur, en, Ordering::Relaxed) == cur
@@ -532,20 +572,33 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                 }//if-else
             //} else if let Node::ANode(ref mut an) = oldref { //if we have an ANode
             } else if node_type_eq(Node::ANode(makeanode(4)), get_oldref(cur, pos)) { //if the node is an ANode
-                LockfreeTrie::_insert(mem, key, val, h, lev + 4, get_oldref(cur, pos), Some(cur))
-            } else if let Node::SNode { hash: _hash, key: _key, val: _val, ref mut txn } = get_oldref(cur, pos) { //if we have an SNode
-                let txnptr = txn.load(Ordering::Relaxed);
+                let oldref = {
+                    let oldptr = get_oldptr(cur, pos);
+                    unsafe { &mut *oldptr }
+                };
+                //LockfreeTrie::_insert(mem, key, val, h, lev + 4, get_oldref(cur, pos), Some(cur))
+                LockfreeTrie::_insert(mem, key, val, h, lev + 4, oldref, Some(cur))
+            //} else if let Node::SNode { hash: _hash, key: _key, val: _val, ref mut txn } = get_oldref(cur, pos) { //if we have an SNode
+            } else if node_type_eq(Node::SNode{ hash: 1 as u64, key: key, val: val, txn: AtomicPtr::new(mem.alloc(Node::NoTxn))}, get_oldref(cur, pos)) {
+                //let txnptr = txn.load(Ordering::Relaxed);
+                //let txnref = unsafe { &*txnptr };
+                let txnptr = {
+                    let txn = get_txn(cur, pos);
+                    txn.load(Ordering::Relaxed)
+                };
                 let txnref = unsafe { &*txnptr };
 
                 if let Node::NoTxn = txnref { //if the SNode has NoTxn
-                    if *_key == key { //if the insert key and key at this index match
+                    //if *_key == key { //if the insert key and key at this index match
+                    if *(get_key(cur, pos)) == key {
                         let sn = mem.alloc(Node::SNode { //make a new SNode
                             hash: h,
                             key: key,
                             val: val,
                             txn: AtomicPtr::new(mem.alloc(Node::NoTxn)),
                         });
-                        if txn.compare_and_swap(txnptr, sn, Ordering::Relaxed) == txnptr {
+                        //if txn.compare_and_swap(txnptr, sn, Ordering::Relaxed) == txnptr {
+                        if get_txn(cur, pos).compare_and_swap(txnptr, sn, Ordering::Relaxed) == txnptr {
                             get_old(cur, pos).compare_and_swap(get_oldptr(cur, pos), sn, Ordering::Relaxed);
                             true
                         } else {
@@ -594,9 +647,9 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                     } else { //if we don't have an array, create one
                         let an = mem.alloc(Node::ANode(LockfreeTrie::_create_anode(mem,
                                                                                    Node::SNode {
-                                                                                       hash: *_hash,
-                                                                                       key: *_key,
-                                                                                       val: *_val,
+                                                                                       hash: *(get_hash(cur, pos)),
+                                                                                       key: *(get_key(cur, pos)),
+                                                                                       val: *(get_val(cur, pos)),
                                                                                        txn: AtomicPtr::new(mem.alloc(Node::NoTxn)),
                                                                                    },
                                                                                    Node::SNode {
@@ -605,7 +658,8 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                                                                                        val: val,
                                                                                        txn: AtomicPtr::new(mem.alloc(Node::NoTxn)),
                                                                                    }, lev + 4)));
-                        if txn.compare_and_swap(txnptr, an, Ordering::Relaxed) == txnptr {
+                        //if txn.compare_and_swap(txnptr, an, Ordering::Relaxed) == txnptr {
+                        if get_txn(cur, pos).compare_and_swap(txnptr, an, Ordering::Relaxed) == txnptr {
                             get_old(cur, pos).compare_and_swap(get_oldptr(cur, pos), an, Ordering::Relaxed);
                             true
                         } else {
