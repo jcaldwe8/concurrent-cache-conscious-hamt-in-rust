@@ -286,6 +286,21 @@ fn get_enode_anptr<K, V>(enode: &Node<K, V>) -> &AtomicPtr<Node<K, V>> {
     anptr
 }
 
+fn get_enode_an<K, V>(enode: &Node<K, V>) -> &Vec<AtomicPtr<Node<K, V>>> {
+    let ary: &Vec<AtomicPtr<Node<K, V>>>;
+    if let Node::ENode { ref parent, parentpos, ref narrow, level, wide: ref _wide, .. } = enode {
+        let parentref = unsafe { &*parent.load(Ordering::Relaxed) };
+        if let Node::ANode(ref an) = parentref {
+            ary = an;
+        } else {
+            panic!("Shouldn't be here");
+        }
+    } else {
+        panic!("Shouldn't be here");
+    }
+    ary
+}
+
 fn get_txn<K, V>(cur: &Node<K, V>, pos: usize) -> &AtomicPtr<Node<K, V>> {
     let trans: &AtomicPtr<Node<K, V>>;
     if let Node::SNode { hash: _hash, key: _key, val: _val, ref mut txn } = get_oldref(cur, pos) {
@@ -487,6 +502,11 @@ impl<K: TrieKey, V: TrieData> LockfreeTrie<K, V> {
                 //get_enode_anptr(enode).compare_and_swap(enode, widenode, Ordering::Relaxed);
                 let anptr = get_enode_anptr(enode);       //doesn't do check to make sure that anptr currently
                 anptr.store(widenode, Ordering::Relaxed); //points to enode before storing a ptr to widenode
+                //let anptr = {
+                //    let an = get_enode_an(enode);
+                //    &an[*(get_enode_parentpos(enode)) as usize]
+                //};
+                //anptr.compare_and_swap(enode, widenode, Ordering::Relaxed);
                 /*
                 let i: u8;
                 for i in 0..1 {

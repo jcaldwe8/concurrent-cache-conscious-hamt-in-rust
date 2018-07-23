@@ -1,20 +1,20 @@
 #![feature(test)]
 
-#[macro_use]
+//#[macro_use]
 extern crate cchamt;
 
 extern crate test;
 extern crate rand;
 
-use test::Bencher;
+//use test::Bencher;
 use std::usize;
-use std::collections::HashMap;
-use rand::{Rng, thread_rng};
-use cchamt::LockfreeTrie; 
+//use std::collections::HashMap;
+//use rand::{Rng, thread_rng};
+use cchamt::LockfreeTrie;
 
 #[test]
 fn test_lockfree_new_lockfree_trie() {
-    let trie = LockfreeTrie::<u64,usize>::new();
+    let _trie = LockfreeTrie::<u64,usize>::new();
 }
 
 #[test]
