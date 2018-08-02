@@ -100,7 +100,8 @@ impl<T: TrieData> ContiguousTrie<T> {
         let length = if key.len() > self.key_segment_size { self.key_segment_size } else { key.len() };
         for i in 0..length {
             let temp = key[i] as usize - '0' as usize;
-            id += temp << (length - i - 1); // I can't figure out why this isn't << i, like in hamt.rs
+            id += temp << (length - i - 1); // shifts to convert array into binary binary_format
+                                            // e.g. {1,0,1,0} => 1010
         }//for
         return id as usize;
     }//compute_index
