@@ -8,6 +8,58 @@
 /// The benchmark is in:
 /// https://github.com/chichunchen/concurrent-cache-conscious-hamt-in-rust/blob/layout/Benchmark.ipynb
 
+// Following will be examples of how some functions behave.
+// To skip this, search for BEGINNING OF CODE to jump to the actual code.
+//
+//=====
+// new
+//=====
+//
+// new(key_length: usize, key_segment_size: usize) -> Self
+//  key_length = 32
+//  key_segment_size = 8
+//
+//  first, exit if key_length is not a multiple of key_segment_size
+//         32 % 8 = 0, so we continue
+//  next, declare memory as a Vec<Option<SubTrie<T>>>
+//  initialize node_length = 0 (this will be the memory size)
+//  use array_length and multitude to compute node_length
+//  start with multitude = array_length = 2^(key_segment_size) = 2^8
+//  in the for loop, exclusively go from 0 to (key_length/key_segment_size - 1) = (32/8 - 1) = 3
+//  after each iteration we have:
+//
+//      node_length += multitude  => 2^8        => 2^8 + 2^16 => 2^8 + 2^16 2^24
+//      multitude *= array_length => 2^16       => 2^24       => 2^32
+//
+//      (iteration:               0             1             2)
+//
+//  we initialize memory with capacity node_length = 2^8 + 2^16 2^24
+//  finally, we push Option = None onto memory 2^8 + 2^16 2^24 times and return the struct
+//
+//========
+// insert
+//========
+//
+// insert(&mut self, value: T, key: &[u8])
+//  value = 'apple'
+//  key = [0,0,0,1,1,0,1,0]
+//
+//  first, we initialize index_depth_pair = key2index(key) = (0001, 0)
+//                                                      or = (00011010, 1)
+//  if index_depth_pair.0 >= mem.len() [i.e., if we want to insert outside the current size of our memory]
+//
+//      push_amount = index_depth_pair.0 - mem.len() + 1 (amount to add to memory)
+//      for 0 to push_amount (excusive)
+//
+//          mem.push(None) (add this many Option = None to the memory Vec)
+
+//  if memory[index_depth_pair.0].is_some() then assert!(false) -- if there is something there,
+//   then we didn't go far enough in the trie, so there is an error of some sort
+//  finally, insert a subtrie with value = 'apple' at index index_depth_pair.0
+//
+
+// BEGINNING OF CODE:
+
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -180,6 +232,14 @@ impl<T: TrieData> ContiguousTrie<T> {
             None => None, // if there's nothing at the given index, return None
         }//match
     }//get
+
+    // insert_: performs the insert function with a string, rather than &[u8]
+    pub fn insert_()&mut self, value: T, key: String) {
+        let str = binary_format!(key);
+        let arr = str.to_owned().into_bytes();
+        insert(value, &arr[2..]);
+    }//insert_
+
 }//impl ContiguousTrie
 
 // TODO should change this to key_length+2, which is {:0key_length+2b}
@@ -189,7 +249,6 @@ macro_rules! binary_format {
         format!("{:#034b}", $x)
     };
 }//binary_format
-
 
 fn main() {
     let mut trie = ContiguousTrie::<usize>::new(32, 8);
