@@ -234,10 +234,9 @@ impl<T: TrieData> ContiguousTrie<T> {
     }//get
 
     // insert_: performs the insert function with a string, rather than &[u8]
-    pub fn insert_()&mut self, value: T, key: String) {
-        let str = binary_format!(key);
-        let arr = str.to_owned().into_bytes();
-        insert(value, &arr[2..]);
+    pub fn insert_(&mut self, value: T, key: String) {
+        let arr = key.to_owned().into_bytes();
+        self.insert(value, &arr[2..]);
     }//insert_
 
 }//impl ContiguousTrie
